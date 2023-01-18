@@ -48,7 +48,7 @@ config QCACLD_FEATURE_GREEN_AP
 
 config HELIUMPLUS
 	bool "Enable Beeliner based descriptor structures for Helium"
-	default n
+	default y
 
 config 64BIT_PADDR
 	bool "Enable 37-bit physical/bus addresses"
@@ -61,7 +61,7 @@ config QCOM_TDLS
 
 config QCOM_LTE_COEX
 	bool "Enable QCOM LTE Coex feature"
-	default n
+	default y
 
 config MPC_UT_FRAMEWORK
 	bool "Enable Unit test framework for multiport concurrency"
@@ -87,7 +87,7 @@ config WLAN_FASTPATH
 
 config WLAN_NAPI
 	bool "Enable NAPI - datapath rx"
-	default n
+	default y
 
 config WLAN_NAPI_DEBUG
        bool "Enable debug logging on NAPI"
@@ -114,11 +114,11 @@ config LFR_SUBNET_DETECTION
 
 config MCC_TO_SCC_SWITCH
 	bool "Enable MCC to SCC Switch Logic"
-	default n
+	default y
 
 config QCACLD_WLAN_LFR2
 	bool "Enable the WLAN Legacy Fast Roaming feature Version 2"
-	default n
+	default y
 
 config WLAN_FEATURE_DISA
 	bool "Enable DISA certification feature"

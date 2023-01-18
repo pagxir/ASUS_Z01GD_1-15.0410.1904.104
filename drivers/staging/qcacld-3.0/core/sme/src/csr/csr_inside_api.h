@@ -1277,8 +1277,12 @@ void csr_prune_channel_list_for_mode(tpAniSirGlobal pMac,
 				     tCsrChannel *pChannelList);
 
 #ifdef WLAN_FEATURE_11W
+#define HAVE_CSR_IS_MFPC_CAPABLE
 bool csr_is_mfpc_capable(struct sDot11fIERSN *rsn);
-#else
+#endif
+
+#ifndef HAVE_CSR_IS_MFPC_CAPABLE
+#define HAVE_CSR_IS_MFPC_CAPABLE
 static inline bool csr_is_mfpc_capable(struct sDot11fIERSN *rsn)
 {
 	return false;
