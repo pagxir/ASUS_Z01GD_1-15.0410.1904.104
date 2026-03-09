@@ -4,22 +4,19 @@ import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
-import org.vosk.LogLevel
 import org.vosk.Model
 import org.vosk.Recognizer
-import org.vosk.LibVosk
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class VoiceRecognizer(private val context: Context) {
 
     private var recognizer: Recognizer? = null
+    private var model: Model? = null
     private var audioRecord: AudioRecord? = null
     private var isRecording = false
 
@@ -28,48 +25,41 @@ class VoiceRecognizer(private val context: Context) {
     private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
 
     private var voskInitialized = false
+    private var initError: String = ""
 
     init {
         try {
-            LibVosk.setLogLevel(LogLevel.WARNINGS)
-            
-            val modelDir = File(context.filesDir, "vosk-model-cn")
-            if (!modelDir.exists()) {
-                modelDir.mkdirs()
-            }
-            
+            loadModel()
+        } catch (e: Exception) {
+            initError = e.message ?: "未知错误"
+        }
+    }
+
+    private fun loadModel() {
+        val modelDir = File(context.filesDir, "vosk-model-cn")
+        
+        if (!modelDir.exists() || modelDir.listFiles()?.isEmpty() == true) {
             val assetsModelPath = "models/vosk-model-cn"
             try {
                 val assets = context.assets.list(assetsModelPath)
-                if (assets != null && assets.isNotEmpty()) {
+                if (!assets.isNullOrEmpty()) {
                     copyModelFromAssets(assetsModelPath, modelDir.absolutePath)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                // ignore
             }
-            
-            if (modelDir.exists() && modelDir.listFiles()?.isNotEmpty() == true) {
-                try {
-                    val model = Model(modelDir.absolutePath)
-                    recognizer = Recognizer(model, sampleRate.toFloat())
-                    voskInitialized = true
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+        }
+        
+        if (modelDir.exists() && modelDir.listFiles()?.isNotEmpty() == true) {
+            try {
+                model = Model(modelDir.absolutePath)
+                recognizer = Recognizer(model!!, sampleRate.toFloat())
+                voskInitialized = true
+            } catch (e: Exception) {
+                initError = "模型加载失败: ${e.message}"
             }
-            
-            if (!voskInitialized) {
-                try {
-                    val model = Model(context.filesDir.absolutePath + "/vosk-model-cn")
-                    recognizer = Recognizer(model, sampleRate.toFloat())
-                    voskInitialized = true
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-            
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } else {
+            initError = "模型文件不存在，请将vosk-model-cn文件夹放入app/src/main/assets/models/"
         }
     }
 
@@ -101,14 +91,20 @@ class VoiceRecognizer(private val context: Context) {
 
     fun isReady(): Boolean = voskInitialized && recognizer != null
 
-    fun recognizeAudio(): Flow<String> = callbackFlow {
-        if (!voskInitialized || recognizer == null) {
-            trySend("识别引擎未初始化")
-            close()
-            return@callbackFlow
-        }
+    fun getInitError(): String = initError
 
+    fun getRecognizer(): Recognizer? = recognizer
+
+    fun startRecording() {
+        if (!voskInitialized || recognizer == null) {
+            return
+        }
+        
         val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+        if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
+            return
+        }
+        
         audioRecord = AudioRecord(
             MediaRecorder.AudioSource.MIC,
             sampleRate,
@@ -118,36 +114,30 @@ class VoiceRecognizer(private val context: Context) {
         )
 
         if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-            trySend("录音初始化失败")
-            close()
-            return@callbackFlow
+            audioRecord?.release()
+            audioRecord = null
+            return
         }
 
         isRecording = true
         audioRecord?.startRecording()
+    }
 
+    fun recognize(): String {
+        if (!isRecording || recognizer == null) {
+            return ""
+        }
+        
+        val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
         val buffer = ByteArray(bufferSize)
-
-        try {
-            while (isRecording && currentCoroutineContext().isActive) {
-                val read = audioRecord?.read(buffer, 0, bufferSize) ?: 0
-                if (read > 0) {
-                    recognizer?.acceptWaveForm(buffer, read)
-                    
-                    val result = recognizer?.result
-                    if (!result.isNullOrEmpty()) {
-                        trySend(result)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            trySend("识别错误: ${e.message}")
+        
+        val read = audioRecord?.read(buffer, 0, bufferSize) ?: 0
+        if (read > 0) {
+            recognizer?.acceptWaveForm(buffer, read)
         }
-
-        awaitClose {
-            stopRecording()
-        }
-    }.flowOn(Dispatchers.IO)
+        
+        return recognizer?.result ?: ""
+    }
 
     fun stopRecording() {
         isRecording = false
@@ -165,5 +155,7 @@ class VoiceRecognizer(private val context: Context) {
         stopRecording()
         recognizer?.close()
         recognizer = null
+        model?.close()
+        model = null
     }
 }

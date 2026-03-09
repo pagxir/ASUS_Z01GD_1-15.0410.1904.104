@@ -3,7 +3,6 @@ package com.voicedialer.app.presentation.viewmodel
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
-import android.os.Bundle
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -13,7 +12,8 @@ import com.voicedialer.app.data.repository.ContactRepository
 import com.voicedialer.app.domain.usecase.TextToSpeechManager
 import com.voicedialer.app.domain.usecase.VoiceRecognizer
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -26,7 +26,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _contacts = MutableLiveData<List<Contact>>()
     val contacts: LiveData<List<Contact>> = _contacts
 
-    private val _status = MutableLiveData<String>()
+    private val _status = MutableLiveData<String>("按住说话")
     val status: LiveData<String> = _status
 
     private val _recognitionResult = MutableLiveData<String>()
@@ -39,7 +39,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var isRecording = false
 
     init {
+        checkVoskStatus()
         loadContacts()
+    }
+
+    private fun checkVoskStatus() {
+        if (!voiceRecognizer.isReady()) {
+            _status.value = "语音识别未就绪: ${voiceRecognizer.getInitError()}"
+        }
     }
 
     fun loadContacts() {
@@ -56,23 +63,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun startRecording() {
         if (isRecording) return
         
+        if (!voiceRecognizer.isReady()) {
+            _status.value = "语音识别未就绪，请检查模型文件"
+            return
+        }
+        
         isRecording = true
         _status.value = "正在录音..."
         _matchedContact.value = null
         _recognitionResult.value = ""
 
+        voiceRecognizer.startRecording()
+
         recognitionJob = viewModelScope.launch {
-            voiceRecognizer.recognizeAudio().collectLatest { result ->
-                try {
-                    val json = JSONObject(result)
-                    if (json.has("text") && json.getString("text").isNotEmpty()) {
-                        val text = json.getString("text")
-                        _recognitionResult.value = text
-                        matchContact(text)
+            while (isActive && isRecording) {
+                val result = voiceRecognizer.recognize()
+                if (result.isNotEmpty()) {
+                    try {
+                        val json = JSONObject(result)
+                        if (json.has("text") && json.getString("text").isNotEmpty()) {
+                            val text = json.getString("text")
+                            _recognitionResult.postValue(text)
+                            matchContact(text)
+                        }
+                    } catch (e: Exception) {
+                        // ignore
                     }
-                } catch (e: Exception) {
-                    // ignore
                 }
+                delay(100)
             }
         }
     }

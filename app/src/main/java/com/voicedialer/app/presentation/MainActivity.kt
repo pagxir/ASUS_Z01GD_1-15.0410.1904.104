@@ -58,6 +58,10 @@ class MainActivity : AppCompatActivity() {
         
         binding.recyclerViewContacts.layoutManager = LinearLayoutManager(this)
         binding.recyclerViewContacts.adapter = adapter
+        binding.recyclerViewContacts.addItemDecoration(
+            androidx.recyclerview.widget.DividerItemDecoration(this, 
+                androidx.recyclerview.widget.LinearLayoutManager.VERTICAL)
+        )
     }
 
     private fun setupMicButton() {
@@ -88,7 +92,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         viewModel.status.observe(this) { status ->
-            binding.textViewStatus.text = status
+            if (!status.isNullOrEmpty()) {
+                binding.textViewStatus.text = status
+            }
         }
 
         viewModel.recognitionResult.observe(this) { result ->
