@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">语音拨号</string>
+    <string name="permission_required">需要权限</string>
+    <string name="hold_to_speak">按住说话</string>
+    <string name="listening">正在识别...</string>
+    <string name="recognition_failed">识别失败</string>
+    <string name="no_match">未找到匹配联系人</string>
+    <string name="calling">正在拨打 %s</string>
+    <string name="play">播放</string>
+    <string name="call">拨打</string>
+</resources>
