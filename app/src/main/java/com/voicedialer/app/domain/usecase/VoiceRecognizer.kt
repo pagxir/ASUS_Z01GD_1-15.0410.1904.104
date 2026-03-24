@@ -4,14 +4,10 @@ import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.util.Log
 import org.vosk.Model
 import org.vosk.Recognizer
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 class VoiceRecognizer(private val context: Context) {
 
@@ -19,6 +15,7 @@ class VoiceRecognizer(private val context: Context) {
     private var model: Model? = null
     private var audioRecord: AudioRecord? = null
     private var isRecording = false
+    private var recordedData = mutableListOf<Byte>()
 
     private val sampleRate = 16000
     private val channelConfig = AudioFormat.CHANNEL_IN_MONO
@@ -26,6 +23,10 @@ class VoiceRecognizer(private val context: Context) {
 
     private var voskInitialized = false
     private var initError: String = ""
+
+    companion object {
+        private const val TAG = "VoiceRecognizer"
+    }
 
     init {
         try {
@@ -46,7 +47,7 @@ class VoiceRecognizer(private val context: Context) {
                     copyModelFromAssets(assetsModelPath, modelDir.absolutePath)
                 }
             } catch (e: Exception) {
-                // ignore
+                Log.w(TAG, "No Vosk model in assets: ${e.message}")
             }
         }
         
@@ -55,11 +56,14 @@ class VoiceRecognizer(private val context: Context) {
                 model = Model(modelDir.absolutePath)
                 recognizer = Recognizer(model!!, sampleRate.toFloat())
                 voskInitialized = true
+                Log.d(TAG, "Vosk model loaded")
             } catch (e: Exception) {
                 initError = "模型加载失败: ${e.message}"
+                Log.e(TAG, initError)
             }
         } else {
-            initError = "模型文件不存在，请将vosk-model-cn文件夹放入app/src/main/assets/models/"
+            initError = "无Vosk模型，跳过"
+            Log.d(TAG, initError)
         }
     }
 
@@ -85,67 +89,109 @@ class VoiceRecognizer(private val context: Context) {
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "Failed to copy model: ${e.message}")
         }
     }
 
-    fun isReady(): Boolean = voskInitialized && recognizer != null
+    fun isReady(): Boolean = true
 
     fun getInitError(): String = initError
 
     fun getRecognizer(): Recognizer? = recognizer
 
-    fun startRecording() {
-        if (!voskInitialized || recognizer == null) {
-            return
-        }
+    fun startRecording(): Boolean {
+        Log.d(TAG, "Starting recording...")
+        recordedData.clear()
         
-        val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-        if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
-            return
-        }
-        
-        audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            sampleRate,
-            channelConfig,
-            audioFormat,
-            bufferSize
-        )
+        try {
+            val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+            Log.d(TAG, "Buffer size: $bufferSize")
+            
+            if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
+                Log.e(TAG, "Invalid buffer size")
+                return false
+            }
+            
+            audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                sampleRate,
+                channelConfig,
+                audioFormat,
+                bufferSize
+            )
 
-        if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-            audioRecord?.release()
-            audioRecord = null
-            return
-        }
+            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                val error = "AudioRecord init failed, state: ${audioRecord?.state}"
+                Log.e(TAG, error)
+                audioRecord?.release()
+                audioRecord = null
+                return false
+            }
 
-        isRecording = true
-        audioRecord?.startRecording()
+            isRecording = true
+            audioRecord?.startRecording()
+            Log.d(TAG, "Recording started successfully")
+            return true
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Permission denied: ${e.message}")
+            return false
+        } catch (e: Exception) {
+            Log.e(TAG, "Recording error: ${e.message}")
+            return false
+        }
     }
 
-    fun recognize(): String {
-        if (!isRecording || recognizer == null) {
-            return ""
-        }
+    fun readAudioData(): Int {
+        if (!isRecording || audioRecord == null) return 0
         
         val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
         val buffer = ByteArray(bufferSize)
         
         val read = audioRecord?.read(buffer, 0, bufferSize) ?: 0
         if (read > 0) {
-            recognizer?.acceptWaveForm(buffer, read)
+            recordedData.addAll(buffer.toList().take(read))
+            
+            if (recognizer != null && voskInitialized) {
+                recognizer?.acceptWaveForm(buffer, read)
+            }
         }
         
-        return recognizer?.result ?: ""
+        return read
+    }
+
+    fun recognize(): String {
+        if (recognizer == null) return ""
+        
+        return try {
+            readAudioData()
+            recognizer?.result ?: ""
+        } catch (e: Exception) {
+            Log.e(TAG, "Recognize error: ${e.message}")
+            ""
+        }
     }
 
     fun stopRecording() {
+        Log.d(TAG, "Stopping recording, data size: ${recordedData.size}")
         isRecording = false
-        audioRecord?.stop()
-        audioRecord?.release()
+        
+        try {
+            audioRecord?.stop()
+            audioRecord?.release()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping: ${e.message}")
+        }
+        
         audioRecord = null
         recognizer?.reset()
     }
+
+    fun getRecordedData(): ByteArray {
+        Log.d(TAG, "Returning ${recordedData.size} bytes of audio data")
+        return recordedData.toByteArray()
+    }
+
+    fun getRecordedDataSize(): Int = recordedData.size
 
     fun getFinalResult(): String {
         return recognizer?.finalResult ?: ""

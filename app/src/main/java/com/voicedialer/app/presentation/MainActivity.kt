@@ -41,6 +41,7 @@ class MainActivity : AppCompatActivity() {
 
         setupRecyclerView()
         setupMicButton()
+        setupRegisterButton()
         observeViewModel()
         checkPermissions()
     }
@@ -71,18 +72,22 @@ class MainActivity : AppCompatActivity() {
 
         binding.buttonMic.setOnLongClickListener {
             viewModel.startRecording()
-            binding.textViewStatus.text = getString(R.string.listening)
             true
         }
 
         binding.buttonMic.setOnTouchListener { _, event ->
             if (event.action == android.view.MotionEvent.ACTION_UP || 
                 event.action == android.view.MotionEvent.ACTION_CANCEL) {
-                if (binding.textViewStatus.text == getString(R.string.listening)) {
-                    viewModel.stopRecording()
-                }
+                viewModel.stopRecording()
             }
             false
+        }
+    }
+
+    private fun setupRegisterButton() {
+        binding.buttonRegister.setOnClickListener {
+            val intent = Intent(this, UserRegistrationActivity::class.java)
+            startActivity(intent)
         }
     }
 
@@ -124,5 +129,10 @@ class MainActivity : AppCompatActivity() {
         if (permissionsToRequest.isNotEmpty()) {
             permissionLauncher.launch(permissionsToRequest.toTypedArray())
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.refreshSpeakerRecognizer()
     }
 }
